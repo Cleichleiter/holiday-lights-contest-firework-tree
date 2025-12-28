@@ -129,6 +129,9 @@ python run_animation.py --args '{"fps": 60, "color": [255, 0, 0]}'
 # Change background color
 python run_animation.py --background white
 
+# Show the Christmas tree in the visualization (hidden by default)
+python run_animation.py --show-tree
+
 ```
 
 ### Using Sample Animations
@@ -238,3 +241,4 @@ The `samples/` folder contains example animations:
 - `NUM_PIXELS` is hardcoded to 500 in `lib/constants.py`, this matches the physical tree
 - All animations must inherit from `BaseAnimation`
 - Parameters are validated by default (use `--no_validation` to skip)
+- The Christmas tree visualization is hidden by default (use `--show-tree` to display it)
