@@ -16,11 +16,11 @@ from lib.matplotlib_controller import MatplotlibController
 
 
 class AnimationRunner():
-  def __init__(self, animation_class: Type[BaseAnimation], parameters: str, validate_parameters=True, background_color: str = 'gray') -> None:
+  def __init__(self, animation_class: Type[BaseAnimation], parameters: str, validate_parameters=True, background_color: str = 'gray', show_tree: bool = False) -> None:
     self.animation_class = animation_class
     kwargs = json.loads(parameters)
 
-    self.c = MatplotlibController(self.animation_class, kwargs, NUM_PIXELS, validate_parameters=validate_parameters, background_color=background_color)
+    self.c = MatplotlibController(self.animation_class, kwargs, NUM_PIXELS, validate_parameters=validate_parameters, background_color=background_color, show_tree=show_tree)
 
   def run(self):
     self.c.run()
@@ -97,6 +97,9 @@ if __name__ == '__main__':
                       help='background color for the matplotlib visualization (default: gray)',
                       type=str,
                       default='gray')
+  parser.add_argument('--show-tree',
+                      help='show the Christmas tree in the visualization',
+                      action='store_true')
   args = parser.parse_args()
 
   # Handle list-samples
@@ -116,7 +119,7 @@ if __name__ == '__main__':
 
   try:
     animation_class = load_animation_from_file(animation_path)
-    ar = AnimationRunner(animation_class, args.args, validate_parameters=not args.no_validation, background_color=args.background)
+    ar = AnimationRunner(animation_class, args.args, validate_parameters=not args.no_validation, background_color=args.background, show_tree=args.show_tree)
   except Exception as e:
     print(f"Error loading animation: {e}")
     sys.exit(1)
