@@ -2,6 +2,8 @@
 
 In honor of the holidays, Tara and family are launching a competition to see who can write the best animation for their programmable Christmas Tree.
 
+If you need any help, join my [discord community](https://discord.gg/cAtAdY2CCf) and ask questions in `#holiday-lights-contest`.
+
 ## Competition Details
 
 **Submission Deadline:** January 11, 2026 at 11:59 pm
