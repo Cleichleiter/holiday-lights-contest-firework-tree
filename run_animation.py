@@ -1,136 +1,176 @@
-import sys
-import os
+# run_animation.py
+from __future__ import annotations
+
 import argparse
+import importlib
+import inspect
 import json
-import signal
+from typing import Any, Dict, Optional
+
+import numpy as np
+
 from lib.constants import NUM_PIXELS
-from typing import Type
-import importlib.util
-from inspect import isclass
-
-# Animation imports.
-from lib.base_animation import BaseAnimation
-
-# Controller imports.
 from lib.matplotlib_controller import MatplotlibController
 
 
-class AnimationRunner():
-  def __init__(self, animation_class: Type[BaseAnimation], parameters: str, validate_parameters=True, background_color: str = 'gray', show_tree: bool = False) -> None:
-    self.animation_class = animation_class
-    kwargs = json.loads(parameters)
-
-    self.c = MatplotlibController(self.animation_class, kwargs, NUM_PIXELS, validate_parameters=validate_parameters, background_color=background_color, show_tree=show_tree)
-
-  def run(self):
-    self.c.run()
-
-  def stop(self):
-    self.c.stop()
-
-
-def load_animation_from_file(path: str) -> Type[BaseAnimation]:
-  """Load an animation class from a Python file."""
-  modname = os.path.splitext(os.path.basename(path))[0]
-  spec = importlib.util.spec_from_file_location(modname, path)
-  if spec is None:
-    raise ValueError(f'Could not import {path}')
-  module = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(module)
-  for attribute_name in dir(module):
-    attribute = getattr(module, attribute_name)
-    if isclass(attribute) and issubclass(attribute, BaseAnimation) and attribute is not BaseAnimation:            
-      return attribute
-  raise ValueError(f'No animation class found in {path}')
+def _parse_args_json(raw: Optional[str]) -> Dict[str, Any]:
+    if raw is None:
+        return {}
+    raw = raw.strip()
+    if raw == "":
+        return {}
+    val = json.loads(raw)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise TypeError("--args JSON must decode to an object/dict, e.g. '{\"fps\": 30}'")
+    return val
 
 
-def list_samples():
-  """List all available sample animations."""
-  samples_dir = os.path.join(os.path.dirname(__file__), 'samples')
-  if not os.path.exists(samples_dir):
-    print("No samples directory found.")
-    return
-  
-  samples = []
-  for file_name in os.listdir(samples_dir):
-    if file_name.endswith('.py') and file_name != '__init__.py':
-      samples.append(os.path.splitext(file_name)[0])
-  
-  if samples:
-    print("Available sample animations:")
-    for sample in sorted(samples):
-      print(f"  - {sample}")
-  else:
-    print("No sample animations found.")
+def _load_animation_class(sample: Optional[str]):
+    if sample:
+        mod = importlib.import_module(f"samples.{sample}")
+    else:
+        mod = importlib.import_module("animation")
+
+    anim_cls = getattr(mod, "Animation", None)
+    if anim_cls is None:
+        raise RuntimeError(
+            f"Could not find class named 'Animation' in {'samples.' + sample if sample else 'animation.py'}"
+        )
+    return anim_cls
 
 
-def get_sample_path(sample_name: str) -> str:
-  """Get the path to a sample animation file."""
-  samples_dir = os.path.join(os.path.dirname(__file__), 'samples')
-  sample_path = os.path.join(samples_dir, f"{sample_name}.py")
-  
-  if not os.path.exists(sample_path):
-    print(f"Error: Sample '{sample_name}' not found.")
-    print("Use --list-samples to see available samples.")
-    sys.exit(1)
-  
-  return sample_path
+def _controller_kwargs(
+    *,
+    controller_sig: inspect.Signature,
+    animation_kwargs: Dict[str, Any],
+    n_pixels: int,
+    background: str,
+    show_tree: bool,
+):
+    params = set(controller_sig.parameters.keys())
+    params.discard("self")
+
+    kwargs: Dict[str, Any] = {}
+
+    # Common names across repo revisions
+    if "animation_kwargs" in params:
+        kwargs["animation_kwargs"] = animation_kwargs
+    if "n_pixels" in params:
+        kwargs["n_pixels"] = n_pixels
+    if "background" in params:
+        kwargs["background"] = background
+    if "bg" in params and "background" not in kwargs:
+        kwargs["bg"] = background
+    if "show_tree" in params:
+        kwargs["show_tree"] = show_tree
+
+    return kwargs
 
 
-if __name__ == '__main__':
-  parser = argparse.ArgumentParser(prog="run_animation", 
-                                   description="Script for running animations with matplotlib visualization")
-  parser.add_argument('--args', 
-                      help='JSON string with custom arguments for the animation',
-                      type=str, 
-                      default="{}")
-  parser.add_argument('--no_validation',
-                      help='skip validating the supplied args list against the animation',
-                      action='store_true')
-  parser.add_argument('--sample',
-                      help='run a sample animation directly from the samples folder',
-                      type=str)
-  parser.add_argument('--list-samples',
-                      help='list all available sample animations',
-                      action='store_true')
-  parser.add_argument('--background',
-                      help='background color for the matplotlib visualization (default: gray)',
-                      type=str,
-                      default='gray')
-  parser.add_argument('--show-tree',
-                      help='show the Christmas tree in the visualization',
-                      action='store_true')
-  args = parser.parse_args()
+def _run_controller(controller):
+    # Run method name varies across revisions
+    if hasattr(controller, "run") and callable(controller.run):
+        controller.run()
+        return
+    if hasattr(controller, "start") and callable(controller.start):
+        controller.start()
+        return
+    if hasattr(controller, "start_animation") and callable(controller.start_animation):
+        controller.start_animation()
+        return
+    raise RuntimeError("Controller has no run()/start()/start_animation() method.")
 
-  # Handle list-samples
-  if args.list_samples:
-    list_samples()
-    exit(0)
-  
-  # Determine which animation file to load
-  if args.sample:
-    animation_path = get_sample_path(args.sample)
-  else:
-    animation_path = os.path.join(os.path.dirname(__file__), 'animation.py')
-    if not os.path.exists(animation_path):
-      print(f"Error: animation.py not found.")
-      print("Create an animation.py file with your animation class, or use --sample <name> to run a sample.")
-      sys.exit(1)
 
-  try:
-    animation_class = load_animation_from_file(animation_path)
-    ar = AnimationRunner(animation_class, args.args, validate_parameters=not args.no_validation, background_color=args.background, show_tree=args.show_tree)
-  except Exception as e:
-    print(f"Error loading animation: {e}")
-    sys.exit(1)
+def main():
+    parser = argparse.ArgumentParser(description="Script for running animations")
+    parser.add_argument("--args", dest="args_json", default=None, help="Animation args as JSON")
+    parser.add_argument("--no_validation", action="store_true", help="Skip validate_parameters")
+    parser.add_argument("--sample", type=str, default=None, help="Run a sample from samples/<name>.py")
+    parser.add_argument("--list-samples", action="store_true", help="List available samples")
+    parser.add_argument("--background", type=str, default="black", help="Background color for visualization")
+    parser.add_argument("--show-tree", action="store_true", help="Show the tree mesh in the plot")
+    args = parser.parse_args()
 
-  def _handle_sigterm(*args):
-    ar.stop()
+    if args.list_samples:
+        try:
+            pkg = importlib.import_module("samples")
+            pkg_path = pkg.__path__[0]
+            import os
 
-  def _handle_sigint(*args):
-    ar.stop()
+            files = sorted(
+                f[:-3]
+                for f in os.listdir(pkg_path)
+                if f.endswith(".py") and f not in ("__init__.py",)
+            )
+            print("Available samples:")
+            for f in files:
+                print(" -", f)
+        except Exception as e:
+            print(f"Could not list samples: {e}")
+        return
 
-  signal.signal(signal.SIGTERM, _handle_sigterm)
-  signal.signal(signal.SIGINT, _handle_sigint)
-  ar.run()
+    try:
+        animation_kwargs = _parse_args_json(args.args_json)
+    except Exception as e:
+        print(f"Error loading animation: {e}")
+        return
 
+    try:
+        AnimClass = _load_animation_class(args.sample)
+    except Exception as e:
+        print(f"Error loading animation: {e}")
+        return
+
+    # Validate parameters if present and not disabled
+    if not args.no_validation:
+        validate = getattr(AnimClass, "validate_parameters", None)
+        if callable(validate):
+            try:
+                validate(animation_kwargs)
+            except Exception as e:
+                print(f"Error loading animation: {e}")
+                return
+
+    # Build controller kwargs based on signature
+    sig = inspect.signature(MatplotlibController.__init__)
+    kwargs = _controller_kwargs(
+        controller_sig=sig,
+        animation_kwargs=animation_kwargs,
+        n_pixels=NUM_PIXELS,
+        background=args.background,
+        show_tree=args.show_tree,
+    )
+
+    # Two possible controller styles exist:
+    #   A) MatplotlibController(animation_instance, ...)
+    #   B) MatplotlibController(AnimationClass, ...)  # controller calls the class internally
+    #
+    # We attempt A first; if we see "'Animation' object is not callable", we retry using B.
+    frame_buf = np.zeros((NUM_PIXELS, 3), dtype=np.uint8)
+
+    # Attempt A: pass instantiated animation
+    try:
+        anim = AnimClass(frame_buf, **animation_kwargs)
+        controller = MatplotlibController(anim, **kwargs)
+        _run_controller(controller)
+        return
+    except Exception as e:
+        msg = str(e)
+        if "object is not callable" not in msg:
+            print(f"Error loading animation: {e}")
+            return
+
+    # Attempt B: pass animation class (callable)
+    try:
+        controller = MatplotlibController(AnimClass, **kwargs)
+        _run_controller(controller)
+        return
+    except Exception as e:
+        print(f"Error loading animation: {e}")
+        return
+
+
+if __name__ == "__main__":
+    main()
